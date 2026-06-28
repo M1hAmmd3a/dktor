@@ -1,6 +1,6 @@
 // ============================================================
-// روشتة — نظام إدارة الصيدلية (JavaScript كامل)
-// مع Firebase Realtime Database لتخزين جميع البيانات
+// روشتة — نظام إدارة الصيدلية (متكامل مع Firebase)
+// جميع البيانات محفوظة في السحاب ومشتركة بين جميع الأجهزة
 // ============================================================
 
 // -------------------- استيراد Firebase --------------------
@@ -59,7 +59,7 @@ const STATE = {
   editingEmployeeId: null,
   isLoggedIn: false,
   isSyncing: false,
-  syncQueue: []
+  dataLoaded: false
 };
 
 // -------------------- مراجع DOM --------------------
@@ -128,7 +128,10 @@ function getCurrentDateISO() {
 
 // حفظ جميع البيانات إلى Firebase
 async function saveAllDataToFirebase() {
-  if (!STATE.currentUser) return;
+  if (!STATE.currentUser) {
+    console.warn('⚠️ لا يوجد مستخدم مسجل');
+    return false;
+  }
   
   try {
     const userRef = ref(db, `users/${STATE.currentUser.uid}/data`);
@@ -152,7 +155,10 @@ async function saveAllDataToFirebase() {
 
 // تحميل جميع البيانات من Firebase
 async function loadAllDataFromFirebase() {
-  if (!STATE.currentUser) return false;
+  if (!STATE.currentUser) {
+    console.warn('⚠️ لا يوجد مستخدم مسجل');
+    return false;
+  }
   
   try {
     const userRef = ref(db, `users/${STATE.currentUser.uid}/data`);
@@ -165,12 +171,20 @@ async function loadAllDataFromFirebase() {
       STATE.customers = data.customers || [];
       STATE.employees = data.employees || [];
       STATE.settings = data.settings || STATE.settings;
+      STATE.dataLoaded = true;
       console.log('✅ تم تحميل البيانات من Firebase');
       return true;
     } else {
       // لا توجد بيانات، نقوم بإنشاء بيانات افتراضية
       console.log('📝 لا توجد بيانات، سيتم إنشاء بيانات جديدة');
+      // إضافة بعض البيانات الافتراضية
+      STATE.drugs = [
+        { id: generateId(), name: 'باراسيتامول', category: 'مسكنات', quantity: 50, salePrice: 5, purchasePrice: 3, expiryDate: '2026-12-31', notes: '' },
+        { id: generateId(), name: 'إيبوبروفين', category: 'مسكنات', quantity: 30, salePrice: 8, purchasePrice: 5, expiryDate: '2026-11-30', notes: '' },
+        { id: generateId(), name: 'أموكسيسيلين', category: 'مضادات حيوية', quantity: 20, salePrice: 12, purchasePrice: 7, expiryDate: '2026-10-15', notes: '' }
+      ];
       await saveAllDataToFirebase();
+      STATE.dataLoaded = true;
       return true;
     }
   } catch (error) {
@@ -187,10 +201,10 @@ function listenForDataChanges() {
   const userRef = ref(db, `users/${STATE.currentUser.uid}/data`);
   
   onValue(userRef, (snapshot) => {
-    if (snapshot.exists()) {
+    if (snapshot.exists() && STATE.dataLoaded) {
       const data = snapshot.val();
-      const oldDrugs = STATE.drugs.length;
-      const oldSales = STATE.sales.length;
+      const oldDrugsCount = STATE.drugs.length;
+      const oldSalesCount = STATE.sales.length;
       
       STATE.drugs = data.drugs || [];
       STATE.sales = data.sales || [];
@@ -199,9 +213,10 @@ function listenForDataChanges() {
       STATE.settings = data.settings || STATE.settings;
       
       // تحديث الواجهة إذا تغيرت البيانات
-      if (oldDrugs !== STATE.drugs.length || oldSales !== STATE.sales.length) {
+      if (oldDrugsCount !== STATE.drugs.length || oldSalesCount !== STATE.sales.length) {
         console.log('🔄 تم تحديث البيانات من السحاب');
         refreshAllViews();
+        showToast('تم تحديث البيانات من السحاب', 'info');
       }
     }
   }, (error) => {
@@ -209,14 +224,16 @@ function listenForDataChanges() {
   });
 }
 
+// دالة حفظ البيانات (استدعاء saveAllDataToFirebase)
+async function saveData() {
+  return await saveAllDataToFirebase();
+}
+
 // وظيفة لتحديث جميع الصفحات
 function refreshAllViews() {
-  // تحديث لوحة التحكم
   updateKPIs();
   updateDashboardAlerts();
   updateRecentSales();
-  
-  // تحديث الصفحات
   renderInventoryTable();
   renderCustomersTable();
   renderEmployeesTable();
@@ -226,16 +243,9 @@ function refreshAllViews() {
   updateAlertsBadge();
   updateEmployeeSelects();
   
-  // تحديث الرسوم البيانية
   setTimeout(() => {
     updateSalesChart();
   }, 300);
-}
-
-// -------------------- دالة حفظ البيانات المعدلة --------------------
-async function saveData() {
-  // حفظ فوري في Firebase
-  await saveAllDataToFirebase();
 }
 
 // -------------------- الإشعارات (Toast) --------------------
@@ -297,7 +307,6 @@ async function loginUser(email, password) {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
     
-    // تحديد الدور من البريد الإلكتروني
     let role = 'user';
     let name = email.split('@')[0];
     
@@ -314,7 +323,6 @@ async function loginUser(email, password) {
     STATE.currentRole = role;
     STATE.isLoggedIn = true;
     
-    // حفظ الجلسة
     sessionStorage.setItem('roshita_session', JSON.stringify({
       uid: user.uid,
       email: email,
@@ -351,6 +359,7 @@ async function logoutUser() {
     STATE.isLoggedIn = false;
     STATE.currentUser = null;
     STATE.currentRole = 'user';
+    STATE.dataLoaded = false;
     sessionStorage.removeItem('roshita_session');
     showToast('تم تسجيل الخروج', 'info');
     showLoginScreen();
@@ -360,7 +369,6 @@ async function logoutUser() {
   }
 }
 
-// التحقق من حالة المصادقة
 function checkAuthState() {
   onAuthStateChanged(auth, async (user) => {
     if (user) {
@@ -377,7 +385,6 @@ function checkAuthState() {
           STATE.currentRole = STATE.currentUser.role;
           STATE.isLoggedIn = true;
           
-          // تحميل البيانات من Firebase
           await loadAllDataFromFirebase();
           listenForDataChanges();
           renderApp();
@@ -427,10 +434,6 @@ function renderApp() {
   refreshAllViews();
 }
 
-// -------------------- باقي الدوال (نفس الكود السابق مع تعديل حفظ البيانات) --------------------
-
-// ... [جميع الدوال السابقة مع تغيير حفظ البيانات إلى saveData()]
-
 // -------------------- التنقل بين الصفحات --------------------
 function showView(viewId) {
   $$('.view').forEach(v => v.classList.remove('active'));
@@ -465,11 +468,6 @@ function showView(viewId) {
     renderCart();
   }
 }
-
-// ============================================================
-// جميع الدوال التالية بنفس الكود السابق
-// ولكن مع استبدال localStorage بـ Firebase
-// ============================================================
 
 // -------------------- لوحة التحكم (Dashboard) --------------------
 function updateKPIs() {
@@ -1858,7 +1856,6 @@ function updateAlertsDropdown() {
 }
 
 // -------------------- التشغيل الأولي --------------------
-loadAllDataFromFirebase();
 checkAuthState();
 initEventListeners();
 
@@ -1867,6 +1864,7 @@ window.__STATE = STATE;
 window.__saveData = saveData;
 window.__loadData = loadAllDataFromFirebase;
 
-console.log('🚀 روشتة — نظام إدارة الصيدلية (مع Firebase)');
+console.log('🚀 روشتة — نظام إدارة الصيدلية (متكامل مع Firebase)');
 console.log('💾 جميع البيانات محفوظة في السحاب');
 console.log('📱 متوفر على جميع الأجهزة');
+console.log('🔄 تحديث فوري عند أي تغيير');
