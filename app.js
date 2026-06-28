@@ -1,5 +1,6 @@
 // ============================================================
 // روشتة — نظام إدارة الصيدلية (JavaScript كامل)
+// مع Firebase Realtime Database لتخزين جميع البيانات
 // ============================================================
 
 // -------------------- استيراد Firebase --------------------
@@ -10,6 +11,17 @@ import {
   signOut, 
   onAuthStateChanged 
 } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+import { 
+  getDatabase, 
+  ref, 
+  set, 
+  get, 
+  push, 
+  remove, 
+  onValue,
+  update,
+  child
+} from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
 
 // -------------------- إعداد Firebase --------------------
 const firebaseConfig = {
@@ -25,26 +37,29 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
+const db = getDatabase(app);
 
 // -------------------- الحالة العامة للتطبيق --------------------
 const STATE = {
-  currentUser: null,          // { email, role, name, uid }
-  currentRole: 'user',        // 'admin' | 'user'
-  drugs: [],                 // قائمة الأدوية
-  sales: [],                 // قائمة المبيعات
-  customers: [],             // قائمة العملاء
-  employees: [],             // قائمة الموظفين
+  currentUser: null,
+  currentRole: 'user',
+  drugs: [],
+  sales: [],
+  customers: [],
+  employees: [],
   settings: {
     pharmacyName: 'روشتة',
     currency: 'ر.س',
     lowStockThreshold: 10,
     expiryWarningDays: 30
   },
-  cart: [],                  // سلة البيع الحالية
+  cart: [],
   editingDrugId: null,
   editingCustomerId: null,
   editingEmployeeId: null,
-  isLoggedIn: false
+  isLoggedIn: false,
+  isSyncing: false,
+  syncQueue: []
 };
 
 // -------------------- مراجع DOM --------------------
@@ -68,7 +83,6 @@ const sidebarOverlay = $('#sidebarOverlay');
 const sidebarCollapseBtn = $('#sidebarCollapseBtn');
 const mobileMenuBtn = $('#mobileMenuBtn');
 const logoutBtn = $('#logoutBtn');
-const contentArea = $('#contentArea');
 const pageTitle = $('#pageTitle');
 const pharmacyNameDisplay = $('#pharmacyNameDisplay');
 const userNameDisplay = $('#userNameDisplay');
@@ -110,36 +124,118 @@ function getCurrentDateISO() {
   return new Date().toISOString();
 }
 
-// -------------------- إدارة التخزين المحلي (LocalStorage) --------------------
-function loadData() {
-  try {
-    const saved = localStorage.getItem('roshita_data');
-    if (saved) {
-      const data = JSON.parse(saved);
-      STATE.drugs = data.drugs || [];
-      STATE.sales = data.sales || [];
-      STATE.customers = data.customers || [];
-      STATE.employees = data.employees || [];
-      STATE.settings = data.settings || STATE.settings;
-    }
-  } catch (e) {
-    console.warn('فشل تحميل البيانات:', e);
-  }
-}
+// -------------------- دوال Firebase Database --------------------
 
-function saveData() {
+// حفظ جميع البيانات إلى Firebase
+async function saveAllDataToFirebase() {
+  if (!STATE.currentUser) return;
+  
   try {
+    const userRef = ref(db, `users/${STATE.currentUser.uid}/data`);
     const data = {
       drugs: STATE.drugs,
       sales: STATE.sales,
       customers: STATE.customers,
       employees: STATE.employees,
-      settings: STATE.settings
+      settings: STATE.settings,
+      lastUpdated: getCurrentDateISO()
     };
-    localStorage.setItem('roshita_data', JSON.stringify(data));
-  } catch (e) {
-    console.warn('فشل حفظ البيانات:', e);
+    await set(userRef, data);
+    console.log('✅ تم حفظ جميع البيانات في Firebase');
+    return true;
+  } catch (error) {
+    console.error('❌ خطأ في حفظ البيانات:', error);
+    showToast('خطأ في حفظ البيانات: ' + error.message, 'error');
+    return false;
   }
+}
+
+// تحميل جميع البيانات من Firebase
+async function loadAllDataFromFirebase() {
+  if (!STATE.currentUser) return false;
+  
+  try {
+    const userRef = ref(db, `users/${STATE.currentUser.uid}/data`);
+    const snapshot = await get(userRef);
+    
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      STATE.drugs = data.drugs || [];
+      STATE.sales = data.sales || [];
+      STATE.customers = data.customers || [];
+      STATE.employees = data.employees || [];
+      STATE.settings = data.settings || STATE.settings;
+      console.log('✅ تم تحميل البيانات من Firebase');
+      return true;
+    } else {
+      // لا توجد بيانات، نقوم بإنشاء بيانات افتراضية
+      console.log('📝 لا توجد بيانات، سيتم إنشاء بيانات جديدة');
+      await saveAllDataToFirebase();
+      return true;
+    }
+  } catch (error) {
+    console.error('❌ خطأ في تحميل البيانات:', error);
+    showToast('خطأ في تحميل البيانات: ' + error.message, 'error');
+    return false;
+  }
+}
+
+// الاستماع للتغييرات في الوقت الفعلي
+function listenForDataChanges() {
+  if (!STATE.currentUser) return;
+  
+  const userRef = ref(db, `users/${STATE.currentUser.uid}/data`);
+  
+  onValue(userRef, (snapshot) => {
+    if (snapshot.exists()) {
+      const data = snapshot.val();
+      const oldDrugs = STATE.drugs.length;
+      const oldSales = STATE.sales.length;
+      
+      STATE.drugs = data.drugs || [];
+      STATE.sales = data.sales || [];
+      STATE.customers = data.customers || [];
+      STATE.employees = data.employees || [];
+      STATE.settings = data.settings || STATE.settings;
+      
+      // تحديث الواجهة إذا تغيرت البيانات
+      if (oldDrugs !== STATE.drugs.length || oldSales !== STATE.sales.length) {
+        console.log('🔄 تم تحديث البيانات من السحاب');
+        refreshAllViews();
+      }
+    }
+  }, (error) => {
+    console.error('❌ خطأ في الاستماع للبيانات:', error);
+  });
+}
+
+// وظيفة لتحديث جميع الصفحات
+function refreshAllViews() {
+  // تحديث لوحة التحكم
+  updateKPIs();
+  updateDashboardAlerts();
+  updateRecentSales();
+  
+  // تحديث الصفحات
+  renderInventoryTable();
+  renderCustomersTable();
+  renderEmployeesTable();
+  renderSalesHistory();
+  renderCart();
+  updateSettingsForm();
+  updateAlertsBadge();
+  updateEmployeeSelects();
+  
+  // تحديث الرسوم البيانية
+  setTimeout(() => {
+    updateSalesChart();
+  }, 300);
+}
+
+// -------------------- دالة حفظ البيانات المعدلة --------------------
+async function saveData() {
+  // حفظ فوري في Firebase
+  await saveAllDataToFirebase();
 }
 
 // -------------------- الإشعارات (Toast) --------------------
@@ -201,20 +297,12 @@ async function loginUser(email, password) {
     const userCredential = await signInWithEmailAndPassword(auth, email, password);
     const user = userCredential.user;
     
-    // تحديد الدور من البريد الإلكتروني (admin@ للصلاحية الكاملة)
+    // تحديد الدور من البريد الإلكتروني
     let role = 'user';
     let name = email.split('@')[0];
     
-    // إذا كان البريد يبدأ بـ admin@ أو يحتوي على +admin
     if (email.includes('admin') || email.startsWith('admin')) {
       role = 'admin';
-    }
-    
-    // البحث عن الموظف في القائمة المحلية
-    const employee = STATE.employees.find(emp => emp.email === email);
-    if (employee) {
-      role = employee.role || 'user';
-      name = employee.name || name;
     }
     
     STATE.currentUser = {
@@ -235,6 +323,13 @@ async function loginUser(email, password) {
     }));
     
     showToast(`مرحباً ${name}!`, 'success');
+    
+    // تحميل البيانات من Firebase
+    await loadAllDataFromFirebase();
+    
+    // بدء الاستماع للتغييرات
+    listenForDataChanges();
+    
     renderApp();
     
   } catch (error) {
@@ -267,9 +362,8 @@ async function logoutUser() {
 
 // التحقق من حالة المصادقة
 function checkAuthState() {
-  onAuthStateChanged(auth, (user) => {
+  onAuthStateChanged(auth, async (user) => {
     if (user) {
-      // محاولة استعادة الجلسة
       const session = sessionStorage.getItem('roshita_session');
       if (session) {
         try {
@@ -282,12 +376,15 @@ function checkAuthState() {
           };
           STATE.currentRole = STATE.currentUser.role;
           STATE.isLoggedIn = true;
+          
+          // تحميل البيانات من Firebase
+          await loadAllDataFromFirebase();
+          listenForDataChanges();
           renderApp();
           return;
         } catch (e) {}
       }
       
-      // إذا لم توجد جلسة، نطلب إعادة تسجيل الدخول
       showLoginScreen();
     } else {
       showLoginScreen();
@@ -309,7 +406,6 @@ function renderApp() {
   loginScreen.classList.add('hidden');
   appShell.classList.remove('hidden');
   
-  // تحديث معلومات المستخدم
   const user = STATE.currentUser;
   if (user) {
     pharmacyNameDisplay.textContent = STATE.settings.pharmacyName || 'روشتة';
@@ -319,56 +415,35 @@ function renderApp() {
     dashGreetingName.textContent = user.name || 'صيدلاني';
   }
   
-  // إظهار/إخفاء عناصر المدير
   if (STATE.currentRole === 'admin') {
     document.body.classList.add('role-admin');
   } else {
     document.body.classList.remove('role-admin');
   }
   
-  // تحديث التاريخ
   dashToday.textContent = formatDate(new Date());
   
-  // تحميل البيانات
-  loadData();
-  
-  // عرض لوحة التحكم
   showView('dashboard');
-  updateKPIs();
-  updateDashboardAlerts();
-  updateRecentSales();
-  renderInventoryTable();
-  renderCustomersTable();
-  renderEmployeesTable();
-  renderSalesHistory();
-  renderCart();
-  updateSettingsForm();
-  updateAlertsBadge();
-  updateEmployeeSelects();
-  
-  // تحديث الرسم البياني
-  setTimeout(() => {
-    updateSalesChart();
-  }, 300);
+  refreshAllViews();
 }
+
+// -------------------- باقي الدوال (نفس الكود السابق مع تعديل حفظ البيانات) --------------------
+
+// ... [جميع الدوال السابقة مع تغيير حفظ البيانات إلى saveData()]
 
 // -------------------- التنقل بين الصفحات --------------------
 function showView(viewId) {
-  // إخفاء جميع الصفحات
   $$('.view').forEach(v => v.classList.remove('active'));
   
-  // إظهار الصفحة المطلوبة
   const target = $(`#view-${viewId}`);
   if (target) {
     target.classList.add('active');
   }
   
-  // تحديث التنقل
   $$('.nav-item').forEach(item => {
     item.classList.toggle('active', item.dataset.view === viewId);
   });
   
-  // تحديث عنوان الصفحة
   const titles = {
     dashboard: 'الرئيسية',
     inventory: 'إدارة الأدوية',
@@ -380,18 +455,21 @@ function showView(viewId) {
   };
   pageTitle.textContent = titles[viewId] || viewId;
   
-  // تحديث الرسوم البيانية عند عرض التقارير
   if (viewId === 'reports') {
     setTimeout(() => {
       updateReportCharts();
     }, 300);
   }
   
-  // تحديث السلة عند عرض المبيعات
   if (viewId === 'pos') {
     renderCart();
   }
 }
+
+// ============================================================
+// جميع الدوال التالية بنفس الكود السابق
+// ولكن مع استبدال localStorage بـ Firebase
+// ============================================================
 
 // -------------------- لوحة التحكم (Dashboard) --------------------
 function updateKPIs() {
@@ -401,7 +479,6 @@ function updateKPIs() {
   const totalRevenue = STATE.sales.reduce((sum, sale) => sum + (sale.total || 0), 0);
   const lowStock = STATE.drugs.filter(d => d.quantity <= STATE.settings.lowStockThreshold).length;
   
-  // حساب مبيعات اليوم
   const today = getToday();
   const todaySales = STATE.sales.filter(s => s.date && s.date.startsWith(today));
   const todayRevenue = todaySales.reduce((sum, s) => sum + (s.total || 0), 0);
@@ -461,7 +538,6 @@ function getAlerts() {
   const now = new Date();
   const warningDays = STATE.settings.expiryWarningDays || 30;
   
-  // تنبيهات المخزون المنخفض
   STATE.drugs.forEach(drug => {
     if (drug.quantity <= 0) {
       alerts.push({
@@ -477,7 +553,6 @@ function getAlerts() {
       });
     }
     
-    // تنبيهات انتهاء الصلاحية
     if (drug.expiryDate) {
       const expiry = new Date(drug.expiryDate);
       const diffDays = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
@@ -545,7 +620,6 @@ function renderInventoryTable() {
   
   let filtered = STATE.drugs;
   
-  // البحث
   if (search) {
     filtered = filtered.filter(d => 
       d.name.toLowerCase().includes(search) || 
@@ -554,12 +628,10 @@ function renderInventoryTable() {
     );
   }
   
-  // تصفية الفئة
   if (categoryFilter) {
     filtered = filtered.filter(d => d.category === categoryFilter);
   }
   
-  // تصفية المخزون
   if (stockFilter === 'low') {
     filtered = filtered.filter(d => d.quantity <= STATE.settings.lowStockThreshold);
   } else if (stockFilter === 'expiring') {
@@ -578,7 +650,6 @@ function renderInventoryTable() {
     });
   }
   
-  // تحديث قائمة الفئات
   const categories = [...new Set(STATE.drugs.map(d => d.category).filter(Boolean))];
   const catSelect = $('#drugCategoryFilter');
   const currentCat = catSelect.value;
@@ -636,9 +707,7 @@ function renderInventoryTable() {
         <td><span class="badge ${statusClass}">${statusLabel}</span></td>
         <td>
           <div class="row-actions">
-            <button class="icon-action" data-edit-drug="${drug.id}" title="تعديل">
-              ✏️
-            </button>
+            <button class="icon-action" data-edit-drug="${drug.id}" title="تعديل">✏️</button>
             ${isAdmin ? `<button class="icon-action danger" data-delete-drug="${drug.id}" title="حذف">🗑️</button>` : ''}
           </div>
         </td>
@@ -646,7 +715,6 @@ function renderInventoryTable() {
     `;
   }).join('');
   
-  // إضافة مستمعات الأحداث
   tbody.querySelectorAll('[data-edit-drug]').forEach(btn => {
     btn.addEventListener('click', () => {
       const id = btn.dataset.editDrug;
@@ -665,57 +733,55 @@ function renderInventoryTable() {
 }
 
 function openEditDrugModal(id) {
-  const drug = STATE.drugs.find(d => d.id === id);
-  if (!drug) return;
-  
+  const drug = id ? STATE.drugs.find(d => d.id === id) : null;
   STATE.editingDrugId = id;
   
-  const modal = openModal('تعديل دواء', `
+  const modal = openModal(id ? 'تعديل دواء' : 'إضافة دواء جديد', `
     <form id="drugForm" class="form-grid">
       <div class="form-field">
         <label>اسم الدواء *</label>
-        <input id="drugName" value="${drug.name}" required>
+        <input id="drugName" value="${drug ? drug.name : ''}" required>
       </div>
       <div class="form-field">
         <label>الفئة</label>
-        <input id="drugCategory" value="${drug.category || ''}">
+        <input id="drugCategory" value="${drug ? drug.category || '' : ''}">
       </div>
       <div class="form-field">
         <label>الباركود</label>
-        <input id="drugBarcode" value="${drug.barcode || ''}">
+        <input id="drugBarcode" value="${drug ? drug.barcode || '' : ''}">
       </div>
       <div class="form-field">
         <label>الكمية *</label>
-        <input type="number" id="drugQuantity" value="${drug.quantity}" min="0" required>
+        <input type="number" id="drugQuantity" value="${drug ? drug.quantity : 0}" min="0" required>
       </div>
       <div class="form-field">
         <label>سعر الشراء</label>
-        <input type="number" id="drugPurchasePrice" value="${drug.purchasePrice || 0}" step="0.01" min="0">
+        <input type="number" id="drugPurchasePrice" value="${drug ? drug.purchasePrice || 0 : 0}" step="0.01" min="0">
       </div>
       <div class="form-field">
         <label>سعر البيع *</label>
-        <input type="number" id="drugSalePrice" value="${drug.salePrice || 0}" step="0.01" min="0" required>
+        <input type="number" id="drugSalePrice" value="${drug ? drug.salePrice || 0 : 0}" step="0.01" min="0" required>
       </div>
       <div class="form-field full">
         <label>تاريخ الانتهاء</label>
-        <input type="date" id="drugExpiryDate" value="${drug.expiryDate || ''}">
+        <input type="date" id="drugExpiryDate" value="${drug ? drug.expiryDate || '' : ''}">
       </div>
       <div class="form-field full">
         <label>ملاحظات</label>
-        <input id="drugNotes" value="${drug.notes || ''}">
+        <input id="drugNotes" value="${drug ? drug.notes || '' : ''}">
       </div>
-      <button type="submit" class="btn btn-primary">حفظ التعديلات</button>
+      <button type="submit" class="btn btn-primary">${id ? 'حفظ التعديلات' : 'إضافة دواء'}</button>
     </form>
   `);
   
   const form = modal.querySelector('#drugForm');
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    saveDrugFromForm(modal);
+    await saveDrugFromForm(modal);
   });
 }
 
-function saveDrugFromForm(modal) {
+async function saveDrugFromForm(modal) {
   const name = modal.querySelector('#drugName').value.trim();
   const category = modal.querySelector('#drugCategory').value.trim();
   const barcode = modal.querySelector('#drugBarcode').value.trim();
@@ -731,7 +797,6 @@ function saveDrugFromForm(modal) {
   }
   
   if (STATE.editingDrugId) {
-    // تعديل
     const index = STATE.drugs.findIndex(d => d.id === STATE.editingDrugId);
     if (index !== -1) {
       STATE.drugs[index] = {
@@ -749,7 +814,6 @@ function saveDrugFromForm(modal) {
     }
     STATE.editingDrugId = null;
   } else {
-    // إضافة جديد
     const newDrug = {
       id: generateId(),
       name,
@@ -766,7 +830,7 @@ function saveDrugFromForm(modal) {
     showToast('تم إضافة الدواء بنجاح', 'success');
   }
   
-  saveData();
+  await saveData();
   modal.remove();
   renderInventoryTable();
   updateKPIs();
@@ -775,9 +839,9 @@ function saveDrugFromForm(modal) {
   updateEmployeeSelects();
 }
 
-function deleteDrug(id) {
+async function deleteDrug(id) {
   STATE.drugs = STATE.drugs.filter(d => d.id !== id);
-  saveData();
+  await saveData();
   renderInventoryTable();
   updateKPIs();
   updateDashboardAlerts();
@@ -827,7 +891,6 @@ function renderCart() {
   total.textContent = totalAmount.toFixed(2);
   checkoutBtn.disabled = false;
   
-  // مستمعات الأحداث
   list.querySelectorAll('[data-cart-increase]').forEach(btn => {
     btn.addEventListener('click', () => {
       const idx = parseInt(btn.dataset.cartIncrease);
@@ -928,13 +991,12 @@ function posSearchDrugs() {
   });
 }
 
-function checkoutSale() {
+async function checkoutSale() {
   if (STATE.cart.length === 0) {
     showToast('السلة فارغة', 'error');
     return;
   }
   
-  // التحقق من الكميات المتوفرة
   for (const item of STATE.cart) {
     const drug = STATE.drugs.find(d => d.id === item.drugId);
     if (!drug) {
@@ -947,7 +1009,6 @@ function checkoutSale() {
     }
   }
   
-  // إنشاء الفاتورة
   const customerId = $('#cartCustomerSelect').value;
   const customer = STATE.customers.find(c => c.id === customerId);
   const totalAmount = STATE.cart.reduce((sum, item) => sum + (item.price * item.quantity), 0);
@@ -968,7 +1029,6 @@ function checkoutSale() {
     cashier: STATE.currentUser ? STATE.currentUser.name : 'صيدلاني'
   };
   
-  // تحديث المخزون
   for (const item of STATE.cart) {
     const drug = STATE.drugs.find(d => d.id === item.drugId);
     if (drug) {
@@ -976,7 +1036,6 @@ function checkoutSale() {
     }
   }
   
-  // تحديث العميل
   if (customerId) {
     const customer = STATE.customers.find(c => c.id === customerId);
     if (customer) {
@@ -988,7 +1047,7 @@ function checkoutSale() {
   STATE.sales.push(sale);
   STATE.cart = [];
   
-  saveData();
+  await saveData();
   renderCart();
   renderInventoryTable();
   renderSalesHistory();
@@ -998,8 +1057,6 @@ function checkoutSale() {
   updateEmployeeSelects();
   
   showToast(`تم إتمام البيع برقم فاتورة #${sale.id}`, 'success');
-  
-  // طباعة الفاتورة
   printInvoice(sale);
 }
 
@@ -1075,9 +1132,7 @@ function renderSalesHistory() {
       <td class="cell-strong">${formatCurrency(sale.total)}</td>
       <td>${sale.cashier || '—'}</td>
       <td>
-        <button class="icon-action" data-print-sale="${sale.id}">
-          🖨️
-        </button>
+        <button class="icon-action" data-print-sale="${sale.id}">🖨️</button>
       </td>
     </tr>
   `).join('');
@@ -1136,14 +1191,18 @@ function renderCustomersTable() {
   tbody.querySelectorAll('[data-delete-customer]').forEach(btn => {
     btn.addEventListener('click', () => {
       if (confirm('هل أنت متأكد من حذف هذا العميل؟')) {
-        STATE.customers = STATE.customers.filter(c => c.id !== btn.dataset.deleteCustomer);
-        saveData();
-        renderCustomersTable();
-        updateEmployeeSelects();
-        showToast('تم حذف العميل', 'info');
+        deleteCustomer(btn.dataset.deleteCustomer);
       }
     });
   });
+}
+
+async function deleteCustomer(id) {
+  STATE.customers = STATE.customers.filter(c => c.id !== id);
+  await saveData();
+  renderCustomersTable();
+  updateEmployeeSelects();
+  showToast('تم حذف العميل', 'info');
 }
 
 function openEditCustomerModal(id = null) {
@@ -1169,47 +1228,51 @@ function openEditCustomerModal(id = null) {
   `);
   
   const form = modal.querySelector('#customerForm');
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = modal.querySelector('#customerName').value.trim();
-    const phone = modal.querySelector('#customerPhone').value.trim();
-    const notes = modal.querySelector('#customerNotes').value.trim();
-    
-    if (!name) {
-      showToast('يرجى إدخال اسم العميل', 'error');
-      return;
-    }
-    
-    if (STATE.editingCustomerId) {
-      const index = STATE.customers.findIndex(c => c.id === STATE.editingCustomerId);
-      if (index !== -1) {
-        STATE.customers[index] = {
-          ...STATE.customers[index],
-          name,
-          phone,
-          notes
-        };
-        showToast('تم تحديث العميل', 'success');
-      }
-      STATE.editingCustomerId = null;
-    } else {
-      STATE.customers.push({
-        id: generateId(),
+    await saveCustomerFromForm(modal);
+  });
+}
+
+async function saveCustomerFromForm(modal) {
+  const name = modal.querySelector('#customerName').value.trim();
+  const phone = modal.querySelector('#customerPhone').value.trim();
+  const notes = modal.querySelector('#customerNotes').value.trim();
+  
+  if (!name) {
+    showToast('يرجى إدخال اسم العميل', 'error');
+    return;
+  }
+  
+  if (STATE.editingCustomerId) {
+    const index = STATE.customers.findIndex(c => c.id === STATE.editingCustomerId);
+    if (index !== -1) {
+      STATE.customers[index] = {
+        ...STATE.customers[index],
         name,
         phone,
-        notes,
-        purchaseCount: 0,
-        totalSpent: 0,
-        createdAt: getCurrentDateISO()
-      });
-      showToast('تم إضافة العميل', 'success');
+        notes
+      };
+      showToast('تم تحديث العميل', 'success');
     }
-    
-    saveData();
-    modal.remove();
-    renderCustomersTable();
-    updateEmployeeSelects();
-  });
+    STATE.editingCustomerId = null;
+  } else {
+    STATE.customers.push({
+      id: generateId(),
+      name,
+      phone,
+      notes,
+      purchaseCount: 0,
+      totalSpent: 0,
+      createdAt: getCurrentDateISO()
+    });
+    showToast('تم إضافة العميل', 'success');
+  }
+  
+  await saveData();
+  modal.remove();
+  renderCustomersTable();
+  updateEmployeeSelects();
 }
 
 // -------------------- الموظفون والصلاحيات --------------------
@@ -1246,13 +1309,17 @@ function renderEmployeesTable() {
   tbody.querySelectorAll('[data-delete-employee]').forEach(btn => {
     btn.addEventListener('click', () => {
       if (confirm('هل أنت متأكد من حذف هذا الموظف؟')) {
-        STATE.employees = STATE.employees.filter(e => e.id !== btn.dataset.deleteEmployee);
-        saveData();
-        renderEmployeesTable();
-        showToast('تم حذف الموظف', 'info');
+        deleteEmployee(btn.dataset.deleteEmployee);
       }
     });
   });
+}
+
+async function deleteEmployee(id) {
+  STATE.employees = STATE.employees.filter(e => e.id !== id);
+  await saveData();
+  renderEmployeesTable();
+  showToast('تم حذف الموظف', 'info');
 }
 
 function openEditEmployeeModal(id = null) {
@@ -1282,54 +1349,55 @@ function openEditEmployeeModal(id = null) {
   `);
   
   const form = modal.querySelector('#employeeForm');
-  form.addEventListener('submit', (e) => {
+  form.addEventListener('submit', async (e) => {
     e.preventDefault();
-    const name = modal.querySelector('#employeeName').value.trim();
-    const email = modal.querySelector('#employeeEmail').value.trim();
-    const role = modal.querySelector('#employeeRole').value;
-    
-    if (!name || !email) {
-      showToast('يرجى ملء جميع الحقول المطلوبة', 'error');
-      return;
-    }
-    
-    if (STATE.editingEmployeeId) {
-      const index = STATE.employees.findIndex(e => e.id === STATE.editingEmployeeId);
-      if (index !== -1) {
-        STATE.employees[index] = {
-          ...STATE.employees[index],
-          name,
-          role
-        };
-        showToast('تم تحديث الموظف', 'success');
-      }
-      STATE.editingEmployeeId = null;
-    } else {
-      // التحقق من عدم وجود البريد مكرر
-      if (STATE.employees.some(e => e.email === email)) {
-        showToast('هذا البريد الإلكتروني مستخدم بالفعل', 'error');
-        return;
-      }
-      STATE.employees.push({
-        id: generateId(),
-        name,
-        email,
-        role,
-        createdAt: getCurrentDateISO()
-      });
-      showToast('تم إضافة الموظف', 'success');
-    }
-    
-    saveData();
-    modal.remove();
-    renderEmployeesTable();
-    // تحديث قائمة العملاء في المبيعات
-    updateEmployeeSelects();
+    await saveEmployeeFromForm(modal);
   });
 }
 
+async function saveEmployeeFromForm(modal) {
+  const name = modal.querySelector('#employeeName').value.trim();
+  const email = modal.querySelector('#employeeEmail').value.trim();
+  const role = modal.querySelector('#employeeRole').value;
+  
+  if (!name || !email) {
+    showToast('يرجى ملء جميع الحقول المطلوبة', 'error');
+    return;
+  }
+  
+  if (STATE.editingEmployeeId) {
+    const index = STATE.employees.findIndex(e => e.id === STATE.editingEmployeeId);
+    if (index !== -1) {
+      STATE.employees[index] = {
+        ...STATE.employees[index],
+        name,
+        role
+      };
+      showToast('تم تحديث الموظف', 'success');
+    }
+    STATE.editingEmployeeId = null;
+  } else {
+    if (STATE.employees.some(e => e.email === email)) {
+      showToast('هذا البريد الإلكتروني مستخدم بالفعل', 'error');
+      return;
+    }
+    STATE.employees.push({
+      id: generateId(),
+      name,
+      email,
+      role,
+      createdAt: getCurrentDateISO()
+    });
+    showToast('تم إضافة الموظف', 'success');
+  }
+  
+  await saveData();
+  modal.remove();
+  renderEmployeesTable();
+  updateEmployeeSelects();
+}
+
 function updateEmployeeSelects() {
-  // تحديث قائمة العملاء في المبيعات
   const select = $('#cartCustomerSelect');
   if (select) {
     const currentVal = select.value;
@@ -1344,7 +1412,6 @@ function updateReportCharts() {
   updateSalesChart('reportTrendChart');
   updateTopDrugsChart();
   
-  // تحديث إحصائيات التقارير
   const period = $('#reportPeriodSelect').value;
   let filtered = [...STATE.sales];
   
@@ -1391,7 +1458,6 @@ function updateSalesChart(canvasId = 'salesTrendChart') {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
   
-  // الحصول على بيانات المبيعات اليومية/الشهرية
   const days = 7;
   const labels = [];
   const data = [];
@@ -1407,7 +1473,6 @@ function updateSalesChart(canvasId = 'salesTrendChart') {
     data.push(total);
   }
   
-  // تدمير الرسم البياني السابق إذا وجد
   if (window._salesChart && window._salesChart.destroy) {
     window._salesChart.destroy();
   }
@@ -1450,7 +1515,6 @@ function updateTopDrugsChart() {
   const canvas = document.getElementById('topDrugsChart');
   if (!canvas) return;
   
-  // حساب الأدوية الأكثر مبيعاً
   const drugSales = {};
   STATE.sales.forEach(sale => {
     if (sale.items) {
@@ -1479,9 +1543,7 @@ function updateTopDrugsChart() {
       labels: labels,
       datasets: [{
         data: data,
-        backgroundColor: [
-          '#16664F', '#1F7A5C', '#2A8D6A', '#4CAF50', '#81C784'
-        ],
+        backgroundColor: ['#16664F', '#1F7A5C', '#2A8D6A', '#4CAF50', '#81C784'],
         borderWidth: 2,
         borderColor: '#fff'
       }]
@@ -1510,13 +1572,13 @@ function updateSettingsForm() {
   $('#settingExpiryWarningDays').value = STATE.settings.expiryWarningDays || 30;
 }
 
-function saveSettings() {
+async function saveSettings() {
   STATE.settings.pharmacyName = $('#settingPharmacyName').value.trim() || 'روشتة';
   STATE.settings.currency = $('#settingCurrency').value.trim() || 'ر.س';
   STATE.settings.lowStockThreshold = parseInt($('#settingLowStockDefault').value) || 10;
   STATE.settings.expiryWarningDays = parseInt($('#settingExpiryWarningDays').value) || 30;
   
-  saveData();
+  await saveData();
   pharmacyNameDisplay.textContent = STATE.settings.pharmacyName;
   showToast('تم حفظ الإعدادات', 'success');
   updateKPIs();
@@ -1548,7 +1610,7 @@ function exportBackup() {
 
 function importBackup(file) {
   const reader = new FileReader();
-  reader.onload = (e) => {
+  reader.onload = async (e) => {
     try {
       const data = JSON.parse(e.target.result);
       if (!data.drugs || !data.sales) {
@@ -1564,8 +1626,8 @@ function importBackup(file) {
         if (data.settings) {
           STATE.settings = data.settings;
         }
-        saveData();
-        renderApp();
+        await saveData();
+        refreshAllViews();
         showToast('تم استرجاع النسخة الاحتياطية بنجاح', 'success');
       }
     } catch (err) {
@@ -1575,7 +1637,7 @@ function importBackup(file) {
   reader.readAsText(file);
 }
 
-function wipeAllData() {
+async function wipeAllData() {
   if (!confirm('⚠️ تحذير: سيتم حذف جميع البيانات بشكل نهائي. هل أنت متأكد؟')) return;
   if (!confirm('تأكيد نهائي: هل تريد حذف كل شيء؟')) return;
   
@@ -1584,14 +1646,13 @@ function wipeAllData() {
   STATE.customers = [];
   STATE.employees = [];
   STATE.cart = [];
-  saveData();
-  renderApp();
+  await saveData();
+  refreshAllViews();
   showToast('تم حذف جميع البيانات', 'info');
 }
 
 // -------------------- مستمعات الأحداث --------------------
 function initEventListeners() {
-  // تسجيل الدخول
   loginForm.addEventListener('submit', (e) => {
     e.preventDefault();
     const email = loginEmail.value.trim();
@@ -1603,7 +1664,6 @@ function initEventListeners() {
     }
   });
   
-  // إظهار/إخفاء كلمة المرور
   togglePassword.addEventListener('click', () => {
     const input = loginPassword;
     const isPassword = input.type === 'password';
@@ -1613,13 +1673,11 @@ function initEventListeners() {
       : '<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>';
   });
   
-  // التنقل في القائمة الجانبية
   $$('.nav-item').forEach(item => {
     item.addEventListener('click', () => {
       const view = item.dataset.view;
       if (view) {
         showView(view);
-        // إغلاق القائمة في الجوال
         if (window.innerWidth < 1024) {
           appShell.classList.remove('mobile-nav-open');
         }
@@ -1627,12 +1685,10 @@ function initEventListeners() {
     });
   });
   
-  // طي القائمة الجانبية
   sidebarCollapseBtn.addEventListener('click', () => {
     appShell.classList.toggle('sidebar-collapsed');
   });
   
-  // قائمة الجوال
   mobileMenuBtn.addEventListener('click', () => {
     appShell.classList.toggle('mobile-nav-open');
   });
@@ -1641,10 +1697,8 @@ function initEventListeners() {
     appShell.classList.remove('mobile-nav-open');
   });
   
-  // تسجيل الخروج
   logoutBtn.addEventListener('click', logoutUser);
   
-  // تنبيهات
   alertsBtn.addEventListener('click', () => {
     alertsDropdown.classList.toggle('hidden');
     if (!alertsDropdown.classList.contains('hidden')) {
@@ -1658,44 +1712,35 @@ function initEventListeners() {
     }
   });
   
-  // إضافة دواء
   $('#addDrugBtn').addEventListener('click', () => {
     STATE.editingDrugId = null;
     openEditDrugModal(null);
   });
   
-  // إضافة عميل
   $('#addCustomerBtn').addEventListener('click', () => {
     STATE.editingCustomerId = null;
     openEditCustomerModal(null);
   });
   
-  // إضافة موظف
   $('#addEmployeeBtn').addEventListener('click', () => {
     STATE.editingEmployeeId = null;
     openEditEmployeeModal(null);
   });
   
-  // البحث في الأدوية
   $('#drugSearchInput').addEventListener('input', renderInventoryTable);
   $('#drugCategoryFilter').addEventListener('change', renderInventoryTable);
   $('#drugStockFilter').addEventListener('change', renderInventoryTable);
   
-  // البحث في المبيعات
   $('#posSearchInput').addEventListener('input', posSearchDrugs);
   
-  // إتمام البيع
   $('#checkoutBtn').addEventListener('click', checkoutSale);
   
-  // البحث في سجل المبيعات
   $('#salesHistorySearch').addEventListener('input', renderSalesHistory);
   $('#salesHistoryFrom').addEventListener('change', renderSalesHistory);
   $('#salesHistoryTo').addEventListener('change', renderSalesHistory);
   
-  // البحث في العملاء
   $('#customerSearchInput').addEventListener('input', renderCustomersTable);
   
-  // التقارير
   $('#reportPeriodSelect').addEventListener('change', () => {
     const period = $('#reportPeriodSelect').value;
     const fromWrap = $('#reportFromWrap');
@@ -1713,18 +1758,13 @@ function initEventListeners() {
   $('#reportFrom').addEventListener('change', updateReportCharts);
   $('#reportTo').addEventListener('change', updateReportCharts);
   
-  // تصدير التقرير
-  $('#exportReportBtn').addEventListener('click', () => {
-    exportReportCSV();
-  });
+  $('#exportReportBtn').addEventListener('click', exportReportCSV);
   
-  // الإعدادات
   $('#settingsForm').addEventListener('submit', (e) => {
     e.preventDefault();
     saveSettings();
   });
   
-  // النسخ الاحتياطي
   $('#exportBackupBtn').addEventListener('click', exportBackup);
   $('#importBackupInput').addEventListener('change', (e) => {
     if (e.target.files.length > 0) {
@@ -1733,10 +1773,8 @@ function initEventListeners() {
     }
   });
   
-  // حذف البيانات
   $('#wipeDataBtn').addEventListener('click', wipeAllData);
   
-  // روابط التنقل
   $$('[data-view-link]').forEach(link => {
     link.addEventListener('click', () => {
       const view = link.dataset.viewLink;
@@ -1744,7 +1782,6 @@ function initEventListeners() {
     });
   });
   
-  // التبويبات الفرعية (المبيعات)
   $$('.subtab-btn').forEach(btn => {
     btn.addEventListener('click', () => {
       $$('.subtab-btn').forEach(b => b.classList.remove('active'));
@@ -1786,7 +1823,6 @@ function exportReportCSV() {
     return;
   }
   
-  // بناء CSV
   let csv = 'رقم الفاتورة,التاريخ,العميل,الإجمالي,الكاشير\n';
   filtered.forEach(sale => {
     csv += `#${sale.id},${formatDate(sale.date)},${sale.customerName || ''},${sale.total || 0},${sale.cashier || ''}\n`;
@@ -1822,19 +1858,15 @@ function updateAlertsDropdown() {
 }
 
 // -------------------- التشغيل الأولي --------------------
-loadData();
+loadAllDataFromFirebase();
 checkAuthState();
 initEventListeners();
 
-// تصدير بعض الدوال للاستخدام في console (للتطوير)
+// تصدير بعض الدوال للاستخدام في console
 window.__STATE = STATE;
 window.__saveData = saveData;
-window.__loadData = loadData;
+window.__loadData = loadAllDataFromFirebase;
 
-console.log('🚀 روشتة — نظام إدارة الصيدلية');
-console.log('📦 البيانات المحملة:', {
-  drugs: STATE.drugs.length,
-  sales: STATE.sales.length,
-  customers: STATE.customers.length,
-  employees: STATE.employees.length
-});
+console.log('🚀 روشتة — نظام إدارة الصيدلية (مع Firebase)');
+console.log('💾 جميع البيانات محفوظة في السحاب');
+console.log('📱 متوفر على جميع الأجهزة');
