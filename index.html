@@ -1,0 +1,481 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1">
+<title>روشتة | نظام إدارة الصيدلية</title>
+<meta name="description" content="نظام متكامل لإدارة الصيدليات: المخزون، المبيعات، العملاء، التقارير والصلاحيات">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ===================== شاشة تسجيل الدخول ===================== -->
+<div id="loginScreen" class="login-screen">
+  <div class="login-aside">
+    <div class="login-aside-inner">
+      <div class="brand-mark brand-mark--lg">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="4" width="40" height="40" rx="12" fill="currentColor" opacity="0.14"/>
+          <path d="M24 13v22M13 24h22" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h1 class="login-aside-title">روشتة</h1>
+      <p class="login-aside-tag">نظام إدارة الصيدلية</p>
+      <ul class="login-aside-points">
+        <li>وداعًا للدفاتر والورق — كل سجلاتك في مكان واحد</li>
+        <li>بحث فوري عن أي دواء بثانية واحدة</li>
+        <li>تنبيهات تلقائية لنواقص المخزون وقرب انتهاء الصلاحية</li>
+        <li>تقارير يومية وشهرية جاهزة للطباعة</li>
+      </ul>
+    </div>
+    <div class="login-aside-decor" aria-hidden="true"></div>
+  </div>
+
+  <div class="login-main">
+    <form id="loginForm" class="login-card" novalidate>
+      <div class="brand-mark brand-mark--sm login-card-logo">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="4" width="40" height="40" rx="12" fill="currentColor" opacity="0.14"/>
+          <path d="M24 13v22M13 24h22" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <h2 class="login-title">تسجيل الدخول</h2>
+      <p class="login-subtitle">استخدم الحساب الذي تم إنشاؤه لك من إدارة الصيدلية</p>
+
+      <div class="form-field">
+        <label for="loginEmail">البريد الإلكتروني</label>
+        <input type="email" id="loginEmail" autocomplete="username" placeholder="sd1@sde.com" required>
+      </div>
+
+      <div class="form-field">
+        <label for="loginPassword">كلمة المرور</label>
+        <div class="input-with-action">
+          <input type="password" id="loginPassword" autocomplete="current-password" placeholder="••••••••" required>
+          <button type="button" id="togglePassword" class="input-action-btn" aria-label="إظهار كلمة المرور" tabindex="-1">
+            <svg id="eyeIcon" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7Z" stroke="currentColor" stroke-width="1.8"/>
+              <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      <div id="loginError" class="form-error hidden" role="alert"></div>
+
+      <button type="submit" id="loginSubmitBtn" class="btn btn-primary btn-block btn-lg">
+        <span class="btn-label">دخول</span>
+        <span class="btn-spinner hidden" aria-hidden="true"></span>
+      </button>
+
+      <p class="login-foot-note">لا تملك حسابًا؟ تواصل مع مسؤول الصيدلية للحصول على بيانات الدخول</p>
+    </form>
+  </div>
+</div>
+
+<!-- ===================== هيكل التطبيق بعد تسجيل الدخول ===================== -->
+<div id="appShell" class="app-shell hidden">
+
+  <div id="sidebarOverlay" class="sidebar-overlay hidden"></div>
+
+  <aside id="sidebar" class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-mark">
+        <svg viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="4" y="4" width="40" height="40" rx="12" fill="currentColor" opacity="0.18"/>
+          <path d="M24 13v22M13 24h22" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div class="sidebar-brand-text">
+        <strong id="pharmacyNameDisplay">روشتة</strong>
+        <span>نظام إدارة الصيدلية</span>
+      </div>
+      <button id="sidebarCollapseBtn" class="icon-btn sidebar-collapse-btn" aria-label="طيّ القائمة">
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 4 4.5 12 9 20M15 4l4.5 8-4.5 8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+    </div>
+
+    <nav class="sidebar-nav" id="sidebarNav">
+      <button class="nav-item active" data-view="dashboard">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 11.5 12 4l8 7.5M6 10v9h12v-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>الرئيسية</span>
+      </button>
+      <button class="nav-item" data-view="inventory">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="7" width="16" height="13" rx="1.5" stroke="currentColor" stroke-width="1.8"/><path d="M9 7V5.5A1.5 1.5 0 0 1 10.5 4h3A1.5 1.5 0 0 1 15 5.5V7M9 12h6M12 9.5v5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>إدارة الأدوية</span>
+      </button>
+      <button class="nav-item" data-view="pos">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="20" r="1.4" fill="currentColor"/><circle cx="17" cy="20" r="1.4" fill="currentColor"/><path d="M3 4h2l2 12h11l2-8H6.2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <span>المبيعات</span>
+      </button>
+      <button class="nav-item" data-view="customers">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="9" cy="8" r="3.2" stroke="currentColor" stroke-width="1.8"/><path d="M3.5 19c.7-3.4 3-5 5.5-5s4.8 1.6 5.5 5M16 9a3 3 0 1 0 0-6M20.5 19c-.5-2.4-1.7-4-3.5-4.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>العملاء</span>
+      </button>
+      <button class="nav-item" data-view="reports" data-admin-only="true">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M5 19V10M12 19V5M19 19v-7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M3 19h18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>التقارير</span>
+      </button>
+      <button class="nav-item" data-view="employees" data-admin-only="true">
+        <svg viewBox="0 0 24 24" fill="none"><rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" stroke-width="1.8"/><circle cx="12" cy="11" r="2.3" stroke="currentColor" stroke-width="1.8"/><path d="M8 17c.7-1.8 2.1-2.7 4-2.7s3.3.9 4 2.7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        <span>الموظفون والصلاحيات</span>
+      </button>
+      <button class="nav-item" data-view="settings" data-admin-only="true">
+        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.8"/><path d="M19.4 13.5a7.6 7.6 0 0 0 0-3l1.9-1.5-2-3.4-2.3.7a7.7 7.7 0 0 0-2.6-1.5L14 2.5h-4l-.4 2.3a7.7 7.7 0 0 0-2.6 1.5l-2.3-.7-2 3.4 1.9 1.5a7.6 7.6 0 0 0 0 3l-1.9 1.5 2 3.4 2.3-.7c.76.66 1.64 1.18 2.6 1.5l.4 2.3h4l.4-2.3a7.7 7.7 0 0 0 2.6-1.5l2.3.7 2-3.4-1.9-1.5Z" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></svg>
+        <span>الإعدادات والنسخ الاحتياطي</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-user">
+      <div class="user-chip">
+        <div class="user-avatar" id="userAvatarInitial">ص</div>
+        <div class="user-meta">
+          <strong id="userNameDisplay">—</strong>
+          <span id="userRoleDisplay">—</span>
+        </div>
+      </div>
+      <button id="logoutBtn" class="btn-logout">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M16 17l5-5-5-5M21 12H9M13 5H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        تسجيل الخروج
+      </button>
+    </div>
+  </aside>
+
+  <div class="main-wrapper">
+    <header class="topbar">
+      <button id="mobileMenuBtn" class="icon-btn mobile-only" aria-label="القائمة">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 6h16M4 12h16M4 18h16" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      </button>
+      <h2 id="pageTitle">الرئيسية</h2>
+      <div class="topbar-actions">
+        <div class="alerts-wrap">
+          <button id="alertsBtn" class="icon-btn" aria-label="التنبيهات">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M18 8.5c0-3.6-2.7-6.5-6-6.5s-6 2.9-6 6.5c0 5-2 6.5-2 6.5h16s-2-1.5-2-6.5Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M10.3 19a1.8 1.8 0 0 0 3.4 0" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <span id="alertsBadge" class="badge-dot hidden"></span>
+          </button>
+          <div id="alertsDropdown" class="dropdown-panel hidden">
+            <div class="dropdown-head">التنبيهات</div>
+            <div id="alertsDropdownList" class="alerts-list"></div>
+          </div>
+        </div>
+      </div>
+    </header>
+
+    <main class="content" id="contentArea">
+
+      <!-- ===== الرئيسية ===== -->
+      <section class="view active" id="view-dashboard">
+        <div class="view-header">
+          <div>
+            <h1>أهلًا، <span id="dashGreetingName">صيدلاني</span> 👋</h1>
+            <p class="muted">نظرة سريعة على صيدليتك اليوم — <span id="dashToday"></span></p>
+          </div>
+        </div>
+
+        <div class="kpi-strip" id="kpiStrip"></div>
+
+        <div class="dashboard-grid">
+          <div class="panel chart-panel">
+            <div class="panel-head"><h3>مبيعات آخر 7 أيام</h3></div>
+            <div class="chart-wrap"><canvas id="salesTrendChart"></canvas></div>
+          </div>
+          <div class="panel alerts-panel">
+            <div class="panel-head"><h3>تنبيهات تستدعي الانتباه</h3></div>
+            <div id="dashboardAlertsList" class="alerts-list"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <h3>آخر العمليات</h3>
+            <button class="link-btn" data-view-link="pos">عرض الكل ←</button>
+          </div>
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>رقم الفاتورة</th><th>التاريخ</th><th>العميل</th><th>الإجمالي</th><th>الكاشير</th></tr></thead>
+              <tbody id="recentSalesBody"></tbody>
+            </table>
+          </div>
+          <p class="empty-state hidden" id="recentSalesEmpty">لا توجد عمليات بيع بعد</p>
+        </div>
+      </section>
+
+      <!-- ===== إدارة الأدوية ===== -->
+      <section class="view" id="view-inventory">
+        <div class="view-header">
+          <div>
+            <h1>إدارة الأدوية</h1>
+            <p class="muted">كل ما يخص المخزون والأدوية في مكان واحد</p>
+          </div>
+          <button id="addDrugBtn" class="btn btn-primary admin-only">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            إضافة دواء
+          </button>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <input id="drugSearchInput" placeholder="بحث سريع بالاسم، الباركود أو الفئة...">
+          </div>
+          <select id="drugCategoryFilter"><option value="">كل الفئات</option></select>
+          <select id="drugStockFilter">
+            <option value="">كل المخزون</option>
+            <option value="low">منخفض المخزون</option>
+            <option value="expiring">قارب على الانتهاء</option>
+            <option value="expired">منتهي الصلاحية</option>
+          </select>
+        </div>
+
+        <div class="panel no-pad">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>اسم الدواء</th><th>الفئة</th><th>الباركود</th><th>الكمية</th>
+                  <th class="admin-only">سعر الشراء</th><th>سعر البيع</th><th>تاريخ الانتهاء</th><th>الحالة</th><th></th>
+                </tr>
+              </thead>
+              <tbody id="inventoryTableBody"></tbody>
+            </table>
+          </div>
+          <p class="empty-state hidden" id="inventoryEmptyState">لا توجد أدوية مطابقة لبحثك. جرّب كلمة أخرى أو أضف دواءً جديدًا.</p>
+        </div>
+      </section>
+
+      <!-- ===== المبيعات ===== -->
+      <section class="view" id="view-pos">
+        <div class="view-header">
+          <div>
+            <h1>المبيعات</h1>
+            <p class="muted">عمليات بيع جديدة وسجل كامل للفواتير السابقة</p>
+          </div>
+        </div>
+
+        <div class="subtabs">
+          <button class="subtab-btn active" data-subtab="pos-new">عملية بيع جديدة</button>
+          <button class="subtab-btn" data-subtab="pos-history">سجل المبيعات</button>
+        </div>
+
+        <div class="subtab-panel active" id="subtab-pos-new">
+          <div class="pos-grid">
+            <div class="panel pos-search-panel">
+              <div class="search-box">
+                <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+                <input id="posSearchInput" placeholder="ابحث عن دواء بالاسم أو الباركود لإضافته للفاتورة...">
+              </div>
+              <div id="posResultsList" class="pos-results"></div>
+              <p class="empty-state hidden" id="posResultsEmpty">لا توجد نتائج</p>
+            </div>
+
+            <div class="panel pos-cart-panel">
+              <div class="panel-head"><h3>سلة الفاتورة</h3></div>
+              <div id="cartItemsList" class="cart-list"></div>
+              <p class="empty-state small" id="cartEmptyState">السلة فارغة، ابحث عن دواء وأضفه</p>
+
+              <div class="cart-customer">
+                <label for="cartCustomerSelect">العميل (اختياري)</label>
+                <select id="cartCustomerSelect"><option value="">بدون عميل</option></select>
+              </div>
+
+              <div class="cart-summary">
+                <div class="row"><span>عدد الأصناف</span><span id="cartItemsCount">0</span></div>
+                <div class="row total"><span>الإجمالي</span><strong id="cartTotal">0.00</strong></div>
+              </div>
+
+              <button id="checkoutBtn" class="btn btn-primary btn-block btn-lg" disabled>إتمام البيع وإصدار الفاتورة</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="subtab-panel" id="subtab-pos-history">
+          <div class="toolbar">
+            <div class="field-inline"><label>من</label><input type="date" id="salesHistoryFrom"></div>
+            <div class="field-inline"><label>إلى</label><input type="date" id="salesHistoryTo"></div>
+            <div class="search-box">
+              <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+              <input id="salesHistorySearch" placeholder="بحث برقم الفاتورة أو اسم العميل">
+            </div>
+          </div>
+          <div class="panel no-pad">
+            <div class="table-wrap">
+              <table class="data-table">
+                <thead><tr><th>رقم الفاتورة</th><th>التاريخ</th><th>العميل</th><th>عدد الأصناف</th><th>الإجمالي</th><th>الكاشير</th><th></th></tr></thead>
+                <tbody id="salesHistoryBody"></tbody>
+              </table>
+            </div>
+            <p class="empty-state hidden" id="salesHistoryEmpty">لا توجد عمليات بيع في هذه الفترة</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== العملاء ===== -->
+      <section class="view" id="view-customers">
+        <div class="view-header">
+          <div>
+            <h1>العملاء</h1>
+            <p class="muted">سجل عملاء صيدليتك وتاريخ مشترياتهم</p>
+          </div>
+          <button id="addCustomerBtn" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            إضافة عميل
+          </button>
+        </div>
+
+        <div class="toolbar">
+          <div class="search-box">
+            <svg viewBox="0 0 24 24" fill="none"><circle cx="11" cy="11" r="7" stroke="currentColor" stroke-width="1.8"/><path d="m20 20-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            <input id="customerSearchInput" placeholder="بحث بالاسم أو رقم الهاتف...">
+          </div>
+        </div>
+
+        <div class="panel no-pad">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>الاسم</th><th>رقم الهاتف</th><th>عدد المشتريات</th><th>إجمالي الشراء</th><th>ملاحظات</th><th></th></tr></thead>
+              <tbody id="customersTableBody"></tbody>
+            </table>
+          </div>
+          <p class="empty-state hidden" id="customersEmptyState">لا يوجد عملاء مسجّلون بعد</p>
+        </div>
+      </section>
+
+      <!-- ===== التقارير ===== -->
+      <section class="view" id="view-reports">
+        <div class="view-header">
+          <div>
+            <h1>التقارير</h1>
+            <p class="muted">أداء صيدليتك بالأرقام</p>
+          </div>
+          <button id="exportReportBtn" class="btn btn-outline">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            تصدير CSV
+          </button>
+        </div>
+
+        <div class="toolbar">
+          <select id="reportPeriodSelect">
+            <option value="daily">يومي (آخر 14 يومًا)</option>
+            <option value="monthly" selected>شهري (آخر 12 شهرًا)</option>
+            <option value="custom">فترة مخصصة</option>
+          </select>
+          <div class="field-inline hidden" id="reportFromWrap"><label>من</label><input type="date" id="reportFrom"></div>
+          <div class="field-inline hidden" id="reportToWrap"><label>إلى</label><input type="date" id="reportTo"></div>
+        </div>
+
+        <div class="kpi-strip" id="reportKpiStrip"></div>
+
+        <div class="dashboard-grid">
+          <div class="panel chart-panel">
+            <div class="panel-head"><h3>اتجاه المبيعات</h3></div>
+            <div class="chart-wrap"><canvas id="reportTrendChart"></canvas></div>
+          </div>
+          <div class="panel chart-panel">
+            <div class="panel-head"><h3>الأدوية الأكثر مبيعًا</h3></div>
+            <div class="chart-wrap"><canvas id="topDrugsChart"></canvas></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== الموظفون والصلاحيات ===== -->
+      <section class="view" id="view-employees">
+        <div class="view-header">
+          <div>
+            <h1>الموظفون والصلاحيات</h1>
+            <p class="muted">تحديد دور كل موظف وما يمكنه الوصول إليه في النظام</p>
+          </div>
+          <button id="addEmployeeBtn" class="btn btn-primary">
+            <svg viewBox="0 0 24 24" fill="none"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+            إضافة موظف
+          </button>
+        </div>
+
+        <div class="callout">
+          <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="1.7"/><path d="M12 8v5M12 16h.01" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          <p>يتم إنشاء بيانات الدخول (البريد الإلكتروني وكلمة المرور) من نظام المصادقة مباشرةً مع مسؤول الصيدلية. هنا تحدد فقط اسم الموظف والصلاحية المرتبطة ببريده الإلكتروني.</p>
+        </div>
+
+        <div class="panel no-pad">
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead><tr><th>الاسم</th><th>البريد الإلكتروني</th><th>الصلاحية</th><th></th></tr></thead>
+              <tbody id="employeesTableBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== الإعدادات والنسخ الاحتياطي ===== -->
+      <section class="view" id="view-settings">
+        <div class="view-header">
+          <div>
+            <h1>الإعدادات والنسخ الاحتياطي</h1>
+            <p class="muted">تخصيص بيانات الصيدلية وحماية بياناتك</p>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>معلومات الصيدلية</h3></div>
+          <form id="settingsForm" class="form-grid">
+            <div class="form-field">
+              <label for="settingPharmacyName">اسم الصيدلية</label>
+              <input id="settingPharmacyName" placeholder="مثال: صيدلية الشفاء">
+            </div>
+            <div class="form-field">
+              <label for="settingCurrency">رمز العملة</label>
+              <input id="settingCurrency" placeholder="مثال: ر.س">
+            </div>
+            <div class="form-field">
+              <label for="settingLowStockDefault">حد التنبيه الافتراضي للمخزون المنخفض</label>
+              <input type="number" id="settingLowStockDefault" min="1">
+            </div>
+            <div class="form-field">
+              <label for="settingExpiryWarningDays">تنبيه قرب انتهاء الصلاحية (عدد الأيام)</label>
+              <input type="number" id="settingExpiryWarningDays" min="1">
+            </div>
+            <button type="submit" class="btn btn-primary">حفظ الإعدادات</button>
+          </form>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head"><h3>النسخ الاحتياطي للبيانات</h3></div>
+          <p class="muted">احتفظ بنسخة من جميع بياناتك (الأدوية، المبيعات، العملاء) كملف واحد، ويمكنك استرجاعه في أي وقت أو على جهاز آخر.</p>
+          <div class="backup-actions">
+            <button id="exportBackupBtn" class="btn btn-outline">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 3v12m0 0-4-4m4 4 4-4M5 21h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              تنزيل نسخة احتياطية
+            </button>
+            <label for="importBackupInput" class="btn btn-outline">
+              <svg viewBox="0 0 24 24" fill="none"><path d="M12 21V9m0 0-4 4m4-4 4 4M5 3h14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              استرجاع نسخة احتياطية
+            </label>
+            <input type="file" id="importBackupInput" accept=".json,application/json" class="hidden-input">
+          </div>
+        </div>
+
+        <div class="panel danger-zone">
+          <div class="panel-head"><h3>منطقة الخطر</h3></div>
+          <p class="muted">حذف جميع البيانات المخزّنة في هذا المتصفح بشكل نهائي. يُنصح بتنزيل نسخة احتياطية أولًا.</p>
+          <button id="wipeDataBtn" class="btn btn-danger">حذف كل البيانات</button>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<!-- جذر النوافذ المنبثقة -->
+<div id="modalRoot"></div>
+
+<!-- حاوية الإشعارات -->
+<div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+<!-- منطقة الطباعة (فواتير) -->
+<div id="printArea" class="print-only"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
